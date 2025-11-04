@@ -56,6 +56,36 @@ export default function ScanScreen() {
     }
   };
 
+  const fetchFromOpenFoodFacts = async (foodName: string) => {
+    try {
+      const searchUrl = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(foodName)}&search_simple=1&action=process&json=1&page_size=5`;
+      const response = await fetch(searchUrl);
+      const data = await response.json();
+
+      if (data.products && data.products.length > 0) {
+        const product = data.products[0];
+        const nutriments = product.nutriments || {};
+
+        return {
+          name: product.product_name || foodName,
+          portion: product.serving_size || "100g",
+          nutrition: {
+            calories: Math.round(nutriments.energy_value || nutriments["energy-kcal_100g"] || nutriments["energy-kcal"] || 0),
+            protein: parseFloat((nutriments.proteins_100g || nutriments.proteins || 0).toFixed(1)),
+            carbs: parseFloat((nutriments.carbohydrates_100g || nutriments.carbohydrates || 0).toFixed(1)),
+            fat: parseFloat((nutriments.fat_100g || nutriments.fat || 0).toFixed(1)),
+            fiber: parseFloat((nutriments.fiber_100g || nutriments.fiber || 0).toFixed(1)),
+          },
+          source: "Open Food Facts",
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error("Open Food Facts API error:", error);
+      return null;
+    }
+  };
+
   const analyzeImage = async (base64Image: string) => {
     setAnalyzing(true);
     try {
@@ -74,6 +104,7 @@ export default function ScanScreen() {
       });
 
       const foodName = response.replace(/Food:\s*/i, "").trim();
+      
       const matchedFood = foodDatabase.find(
         (f) =>
           f.name.toLowerCase() === foodName.toLowerCase() ||
@@ -83,8 +114,21 @@ export default function ScanScreen() {
       if (matchedFood) {
         setSelectedFood(matchedFood);
       } else {
-        setSearchQuery(foodName);
-        Alert.alert("Food identified", `Found: ${foodName}. Please select from the list or search manually.`);
+        const openFoodData = await fetchFromOpenFoodFacts(foodName);
+        
+        if (openFoodData) {
+          const newFoodItem: FoodItem = {
+            id: `off_${Date.now()}`,
+            name: openFoodData.name,
+            portion: openFoodData.portion,
+            nutrition: openFoodData.nutrition,
+            category: "From API",
+          };
+          setSelectedFood(newFoodItem);
+        } else {
+          setSearchQuery(foodName);
+          Alert.alert("Food identified", `Found: ${foodName}. Please select from the list or search manually.`);
+        }
       }
     } catch (error) {
       console.error("Image analysis error:", error);
@@ -237,6 +281,11 @@ export default function ScanScreen() {
 
             {selectedFood && (
               <>
+                {selectedFood.category === "From API" && (
+                  <View style={styles.apiSourceBadge}>
+                    <Text style={styles.apiSourceText}>Data from Open Food Facts</Text>
+                  </View>
+                )}
                 <Text style={styles.modalTitle}>{selectedFood.name}</Text>
                 {selectedFood.nameTurkish && (
                   <Text style={styles.modalSubtitle}>{selectedFood.nameTurkish}</Text>
@@ -595,5 +644,18 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 16,
     fontWeight: "700" as const,
+  },
+  apiSourceBadge: {
+    backgroundColor: "#10b981",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    alignSelf: "flex-start",
+    marginBottom: 12,
+  },
+  apiSourceText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "600" as const,
   },
 });

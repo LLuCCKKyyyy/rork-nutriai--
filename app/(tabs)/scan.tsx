@@ -1,11 +1,11 @@
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Modal, Platform, Alert } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Camera, Image as ImageIcon, X, Plus, Search } from "lucide-react-native";
 import { useNutrition } from "@/contexts/NutritionContext";
-import { turkishFoods } from "@/data/turkishFoods";
+import { foodDatabase } from "@/data/foods";
 import type { FoodItem, MealEntry } from "@/types/nutrition";
 import { generateText } from "@rork/toolkit-sdk";
 import { useRouter } from "expo-router";
@@ -15,6 +15,7 @@ export default function ScanScreen() {
   const router = useRouter();
   const { addMeal } = useNutrition();
   const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef<any>(null);
   const [showCamera, setShowCamera] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -22,7 +23,7 @@ export default function ScanScreen() {
   const [quantity, setQuantity] = useState("1");
   const [selectedMealType, setSelectedMealType] = useState<"breakfast" | "lunch" | "dinner" | "snack">("lunch");
 
-  const filteredFoods = turkishFoods.filter(
+  const filteredFoods = foodDatabase.filter(
     (food) =>
       food.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (food.nameTurkish?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
@@ -58,7 +59,7 @@ export default function ScanScreen() {
   const analyzeImage = async (base64Image: string) => {
     setAnalyzing(true);
     try {
-      const prompt = `Analyze this food image and identify the dish. Return ONLY the food name in this exact format: "Food: [name]". If you see Turkish cuisine, use the Turkish name. Be concise.`;
+      const prompt = `Analyze this food image and identify the dish. Return ONLY the food name in English in this exact format: "Food: [name]". Be concise and use common English food names.`;
       
       const response = await generateText({
         messages: [
@@ -73,7 +74,7 @@ export default function ScanScreen() {
       });
 
       const foodName = response.replace(/Food:\s*/i, "").trim();
-      const matchedFood = turkishFoods.find(
+      const matchedFood = foodDatabase.find(
         (f) =>
           f.name.toLowerCase() === foodName.toLowerCase() ||
           f.nameTurkish?.toLowerCase() === foodName.toLowerCase()
@@ -114,10 +115,29 @@ export default function ScanScreen() {
     ]);
   };
 
+  const handleCapturePhoto = async () => {
+    if (!cameraRef.current) return;
+    
+    try {
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.8,
+        base64: true,
+      });
+      
+      if (photo.base64) {
+        setShowCamera(false);
+        await analyzeImage(photo.base64);
+      }
+    } catch (error) {
+      console.error("Camera capture error:", error);
+      Alert.alert("Error", "Failed to capture photo. Please try again.");
+    }
+  };
+
   if (showCamera && Platform.OS !== "web") {
     return (
       <View style={styles.cameraContainer}>
-        <CameraView style={styles.camera} facing="back">
+        <CameraView ref={cameraRef} style={styles.camera} facing="back">
           <View style={[styles.cameraOverlay, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
             <TouchableOpacity
               style={styles.closeButton}
@@ -129,10 +149,7 @@ export default function ScanScreen() {
             <View style={styles.cameraActions}>
               <TouchableOpacity
                 style={styles.captureButton}
-                onPress={async () => {
-                  Alert.alert("Not implemented", "Camera capture will be added in next update. Please use gallery for now.");
-                  setShowCamera(false);
-                }}
+                onPress={handleCapturePhoto}
               >
                 <View style={styles.captureButtonInner} />
               </TouchableOpacity>
@@ -172,7 +189,7 @@ export default function ScanScreen() {
         <Search color="#9ca3af" size={20} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search Turkish cuisine..."
+          placeholder="Search food..."
           value={searchQuery}
           onChangeText={setSearchQuery}
           placeholderTextColor="#9ca3af"
